@@ -1,21 +1,23 @@
 import oracledb
 import pandas as pd
 import streamlit as st
+import warnings
+
+# Ignore les avertissements de Pandas sur SQLAlchemy
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # Activation du mode Thick pour la compatibilité Oracle XE
 try:
     oracledb.init_oracle_client()
 except Exception as e:
-    # Si déjà initialisé, on ignore l'erreur
     pass
 
 def get_connection():
     """Établit la connexion avec la base Oracle XE locale."""
     try:
-        # Remplace bien TON_MOT_DE_PASSE ici
         conn = oracledb.connect(
             user="EtudiantSGA",
-            password="system",
+            password="system", # Ton mot de passe est bien 'system'
             dsn="localhost:1521/xe"
         )
         return conn
@@ -28,6 +30,7 @@ def run_query(sql):
     conn = get_connection()
     if conn:
         try:
+            # Utilisation de la connexion pour lire le SQL
             df = pd.read_sql(sql, conn)
             conn.close()
             return df
@@ -36,3 +39,21 @@ def run_query(sql):
             conn.close()
             return None
     return None
+
+def run_insert(sql, data):
+    """Exécute une insertion de données avec commit."""
+    conn = get_connection()
+    if conn:
+        try:
+            cursor = conn.cursor()
+            cursor.execute(sql, data)
+            conn.commit() # Indispensable pour valider l'ajout en base
+            cursor.close()
+            conn.close()
+            return True
+        except Exception as e:
+            st.error(f"Erreur lors de l'insertion : {e}")
+            if conn:
+                conn.close()
+            return False
+    return False

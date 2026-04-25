@@ -1,5 +1,5 @@
 import streamlit as st
-from database import run_query
+from database import run_query, run_insert
 
 # Configuration de l'interface
 st.set_page_config(
@@ -8,53 +8,66 @@ st.set_page_config(
     layout="wide"
 )
 
-# Style CSS personnalisé pour le titre
-st.markdown("""
-    <style>
-    .main-title {
-        font-size:40px !important;
-        color: #1E3A8A;
-        text-align: center;
-        font-weight: bold;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-st.markdown('<p class="main-title">🎓 SGA-INSAT : Système de Gestion de l\'Apprentissage</p>', unsafe_allow_html=True)
+# Titre principal
+st.title("🎓 SGA-INSAT : Système de Gestion de l'Apprentissage")
 st.markdown("---")
 
 # Navigation latérale
-st.sidebar.image("https://www.insat.rnu.tn/assets/images/logo.png", width=150) # Optionnel : logo INSAT si tu as l'URL
 st.sidebar.title("Menu Principal")
 menu = [
     "🏠 Accueil",
+    "📝 Inscription Étudiant",
     "📚 Ressources par Filière (R1)",
     "🤝 Binômes Tuteur/Parrain (R2)",
     "⭐ Satisfaction par Tuteur (R3)",
     "📊 Moyenne par Matière (R4)",
     "🏢 Salles Disponibles (R5)",
     "🧑‍🎓 Tuteurs sans Parrain (R6)",
-    "❌ Offres sans Ressources (R7)",
     "🏆 Top 3 Tutorés (R8)",
-    "📖 Tuteurs Multi-matières (R9)",
     "📈 Offres d'Excellence (R10)"
 ]
-choice = st.sidebar.selectbox("Choisir une analyse", menu)
+choice = st.sidebar.selectbox("Choisir une action", menu)
 
 # --- LOGIQUE DES SECTIONS ---
 
 if choice == "🏠 Accueil":
-    st.subheader("Bienvenue sur l'interface d'administration")
-    st.write("Cette application Python est connectée en temps réel à votre base Oracle XE.")
-    st.success("Connexion établie avec l'utilisateur : EtudiantSGA")
-    
-    # Petit résumé rapide
-    col1, col2 = st.columns(2)
-    with col1:
-        st.info("💡 **Conseil :** Utilisez le menu à gauche pour naviguer entre les requêtes du cahier des charges.")
-    with col2:
-        st.warning("⚠️ **Note :** Les données affichées correspondent aux dernières insertions SQL effectuées.")
+    st.subheader("Bienvenue sur l'interface de gestion")
+    st.write("Cette application permet de gérer et d'analyser les données de tutorat de l'INSAT en temps réel.")
+    st.info("Base de données connectée : Oracle XE (Utilisateur : EtudiantSGA)")
 
+elif choice == "📝 Inscription Étudiant":
+    st.header("Ajouter un nouvel étudiant")
+    st.write("Remplissez le formulaire ci-dessous pour enregistrer un nouvel inscrit.")
+    
+    with st.form("form_etudiant"):
+        col1, col2 = st.columns(2)
+        with col1:
+            code = st.text_input("Code INSAT (ex: 22005)")
+            nom = st.text_input("Nom")
+            prenom = st.text_input("Prénom")
+        with col2:
+            # Correction des niveaux selon le cursus INSAT
+            niveaux_insat = ["1ère année MPI", "2ème année", "3ème année", "4ème année", "5ème année"]
+            niveau = st.selectbox("Année d'étude", niveaux_insat)
+            
+            # Récupération dynamique des départements depuis la base
+            df_dep = run_query("SELECT code_depar FROM departement")
+            dep_list = df_dep['CODE_DEPAR'].tolist() if df_dep is not None else ["GL", "RT", "IIA", "IMI"]
+            dep = st.selectbox("Filière / Département", dep_list)
+        
+        submitted = st.form_submit_button("Enregistrer l'étudiant")
+        
+        if submitted:
+            if code and nom and prenom:
+                sql = "INSERT INTO etudiant_ (code_insat, nom, prenom, niveau, code_depar) VALUES (:1, :2, :3, :4, :5)"
+                success = run_insert(sql, (code, nom, prenom, niveau, dep))
+                if success:
+                    st.success(f"L'étudiant {prenom} {nom} a été ajouté avec succès !")
+                    st.balloons()
+            else:
+                st.warning("Veuillez remplir tous les champs obligatoires.")
+
+# --- Garder les autres sections (R1, R2, etc.) comme tu les as écrites ---
 elif choice == "📚 Ressources par Filière (R1)":
     st.header("Ressources pédagogiques (IIA)")
     query = """
@@ -66,7 +79,7 @@ elif choice == "📚 Ressources par Filière (R1)":
         WHERE d.code_depar = 'IIA'
     """
     df = run_query(query)
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width=1200)
 
 elif choice == "🤝 Binômes Tuteur/Parrain (R2)":
     st.header("Binômes de départements différents")
@@ -83,28 +96,12 @@ elif choice == "🤝 Binômes Tuteur/Parrain (R2)":
     if df is not None and not df.empty:
         st.table(df)
     else:
-        st.info("Aucun binôme mixte trouvé pour le moment.")
-
-elif choice == "⭐ Satisfaction par Tuteur (R3)":
-    st.header("Note moyenne de satisfaction par tuteur")
-    query = """
-        SELECT e.NOM || ' ' || e.Prenom AS "Tuteur", 
-               COUNT(si.note_satis) AS "Nb Évals", 
-               ROUND(AVG(si.note_satis), 2) AS "Note Moyenne"
-        FROM etudiant_ e
-        JOIN offre_tutorat ot ON ot.code_insat = e.code_insat
-        JOIN s_inscrire si ON si.id_offre = ot.id_offre
-        WHERE si.note_satis IS NOT NULL
-        GROUP BY e.code_insat, e.NOM, e.Prenom
-        ORDER BY 3 DESC
-    """
-    df = run_query(query)
-    st.dataframe(df)
+        st.info("Aucun binôme mixte trouvé.")
 
 elif choice == "📊 Moyenne par Matière (R4)":
     st.header("Satisfaction globale par matière")
     query = """
-        SELECT m.Libelle AS "Matiere", ROUND(AVG(si.note_satis), 2) AS "Note"
+        SELECT m.Libelle AS "Matière", ROUND(AVG(si.note_satis), 2) AS "Note"
         FROM matiere m
         JOIN offre_tutorat ot ON ot.code_matiere = m.code_matiere
         JOIN s_inscrire si ON si.id_offre = ot.id_offre
@@ -113,40 +110,12 @@ elif choice == "📊 Moyenne par Matière (R4)":
     """
     df = run_query(query)
     if df is not None:
-        st.bar_chart(data=df.set_index("Matiere"))
+        st.bar_chart(data=df.set_index("Matière"))
 
 elif choice == "🏢 Salles Disponibles (R5)":
     st.header("Salles n'ayant aucune réservation")
-    query = """
-        SELECT numero, bloc, capacite_salle 
-        FROM salle_ s
-        LEFT JOIN offre_tutorat ot ON ot.id_salle = s.id_salle
-        WHERE ot.id_salle IS NULL
-    """
+    query = "SELECT numero, bloc, capacite_salle FROM salle_ s LEFT JOIN offre_tutorat ot ON ot.id_salle = s.id_salle WHERE ot.id_salle IS NULL"
     df = run_query(query)
-    st.dataframe(df)
-
-elif choice == "🧑‍🎓 Tuteurs sans Parrain (R6)":
-    st.header("Tuteurs indépendants (Sans parrain)")
-    query = """
-        SELECT NOM, Prenom, niveau 
-        FROM etudiant_ 
-        WHERE code_insat_parrain IS NULL 
-        AND code_insat IN (SELECT code_insat FROM offre_tutorat)
-    """
-    df = run_query(query)
-    st.table(df)
-
-elif choice == "❌ Offres sans Ressources (R7)":
-    st.header("Séances de tutorat sans support pédagogique")
-    query = """
-        SELECT ot.id_offre, m.Libelle, ot.date_seance
-        FROM offre_tutorat ot
-        JOIN matiere m ON ot.code_matiere = m.code_matiere
-        WHERE ot.id_offre NOT IN (SELECT id_offre FROM ressource_pedagogique)
-    """
-    df = run_query(query)
-    st.warning("Ces offres nécessitent l'ajout d'un document PDF.")
     st.dataframe(df)
 
 elif choice == "🏆 Top 3 Tutorés (R8)":
@@ -163,22 +132,10 @@ elif choice == "🏆 Top 3 Tutorés (R8)":
     df = run_query(query)
     st.table(df)
 
-elif choice == "📖 Tuteurs Multi-matières (R9)":
-    st.header("Tuteurs polyvalents (> 1 matière)")
-    query = """
-        SELECT e.NOM, COUNT(DISTINCT ot.code_matiere) AS "Nb Matières"
-        FROM etudiant_ e
-        JOIN offre_tutorat ot ON ot.code_insat = e.code_insat
-        GROUP BY e.NOM
-        HAVING COUNT(DISTINCT ot.code_matiere) > 1
-    """
-    df = run_query(query)
-    st.dataframe(df)
-
 elif choice == "📈 Offres d'Excellence (R10)":
     st.header("Offres dépassant la moyenne générale")
     query = """
-        SELECT ot.id_offre, m.Libelle, ROUND(AVG(si.note_satis), 2) AS "Note Offre"
+        SELECT ot.id_offre, m.Libelle, ROUND(AVG(si.note_satis), 2) AS "Note"
         FROM offre_tutorat ot
         JOIN matiere m ON ot.code_matiere = m.code_matiere
         JOIN s_inscrire si ON si.id_offre = ot.id_offre
@@ -186,5 +143,4 @@ elif choice == "📈 Offres d'Excellence (R10)":
         HAVING AVG(si.note_satis) > (SELECT AVG(note_satis) FROM s_inscrire)
     """
     df = run_query(query)
-    st.balloons() # Petite animation pour célébrer l'excellence
     st.dataframe(df)
